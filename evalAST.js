@@ -76,7 +76,10 @@ function ev(env, ast) {
         case "let":
           var id=ev(env,ast[1])[1];
           var val=ev(env,ast[2])[1];
+          val=updateClosures(id,val,val);
           var newenv = [id,val,env];
+          //val=ev(newenv,ast[2]);
+          //newenv = [id,val,env];
           return ev(newenv,ast[3]);
         case "fun":
           var args=ast[1];
@@ -127,7 +130,6 @@ function ev(env, ast) {
           while(c_env[2]!==null){
             if(c_env[1]===f){
               newenv=[c_env[0],c_env[1],newenv];
-              break;
             }
             c_env=c_env[2];
           }
@@ -191,9 +193,11 @@ function ev(env, ast) {
           return [env,head];
         case "delay":
           //var e=ev(env,ast[1])[1];
+          var newenv=[];
           return [env,["closure",[],ast[1],env]];
         case "force":
           //var e=ev(env,ast[1])[1];
+          //console.log(env[1][2][1]="rest");
           return [env,ev(env,["call",ast[1]])[1]];
            
     }
@@ -264,3 +268,191 @@ function matchRec(env,matchExpr,pattern){
     }
   }
 }
+
+function updateClosures(id,topVal,val){
+  console.log(val);
+  if(val===null || typeof val === "number" || typeof val === "boolean"){
+    return val;
+  }
+
+  if(val[0]==="cons"){
+    val[1]=updateClosures(id,topVal,val[1]);
+    val[2]=updateClosures(id,topVal,val[2]);
+    return val;
+  }
+
+  if(val[0]==="closure"){
+    val[3]=[id,topVal,val[3]];
+    return val;
+  }
+}
+/* obsolete??? complete waste of time?
+function replaceRecur(env,id,val){
+  if(typeof val === "number" || typeof val === "boolean" || typeof val === "string" || val === null){
+    return [env,val];
+  }
+
+  switch(val[1]){
+    case "+":
+    case "-":
+    case "*":          
+    case "/":
+    case "%":
+    case "=":
+    case "!=":
+    case "<":
+    case ">":
+    case "and":
+    case "or":
+    case "id":
+      return [env, val];
+    case "if":
+      var val[1]=replaceRecur(env,val[1])[1];
+      var val[2]=replaceRecur(env,val[2])[1];
+      var val[3]=replaceRecur(env,val[3])[1];
+      return [env,val];
+      if(val[1]===id){
+        val[1]=newid;
+      }
+      return val;
+    case "let":
+      if(val[1]===id){
+        return [env,val];
+      }
+      var val[2]=replaceRecur(val[2]);
+      return [env,val];
+    case "fun":
+      var args=val[1];
+      for(var i;i<args.length;i++){
+        if(args[i]===id){
+          return [env,val];
+        }
+      }
+      var val[2]=replaceRecur(val[2]);
+      return [env,val];
+    case "call":
+      //NOT SURE SO IGNORED
+      return [env,val];
+      /**
+      //if id in argNames break, if id in args passed...need to replace in that function
+      var f=val[1];
+      var args = val.slice(2);
+      for(var i=0;i<args.length;i++){
+        if(args[i]===id){
+          args[i]=newid;
+          f=replaceRecur(val[1]);
+        }
+      }
+
+      var index=-1;
+      var newenv;
+      var val;
+      var id;
+      if(f[0]!=="closure"){
+        throw new Error("call on non-function type");
+      }
+      var args = ast.slice(2);
+
+      //curry time
+      if(args.length<f[1].length){
+        for(var i=0;i<args.length;i++){
+          for(index++;index<f[1].length;index++){
+            if(!isPrim(f[1][index])) break;
+          }
+          val=ev(env,args[i])[1];
+          id=f[1][index];
+          f[1][index]=val;
+          f[3]=[id,val,f[3]];
+        }
+        if(index<f[1].length-1){
+          return [env,f];
+        }
+      }
+
+      //make env = arguments env -> closure env
+      newenv=f[3];
+      var aval;
+      for(var i=0;i<args.length;i++){
+        if(typeof args[i] === "number" || typeof args[i] === "boolean"){
+          aval=args[i];
+        } else {
+          aval=ev(env,args[i])[1];
+        }
+        newenv=[f[1][i],aval,newenv];
+      }
+      var c_env=env;
+      while(c_env[2]!==null){
+        if(c_env[1]===f){
+          newenv=[c_env[0],c_env[1],newenv];
+          break;
+        }
+        c_env=c_env[2];
+      }
+      return [env, ev(newenv,f[2])[1]];
+    case "cons":
+      val[1]=replaceRecur(env,val[1])[1];
+      val[2]=replaceRecur(env,val[2])[1];
+      return [env,val];
+    case "seq":
+      var newenv=replaceRecur(env,val[1])[0];
+      return replaceRecur(newenv,val[2]);
+    case "match":
+      var p=ev(env,ast[1])[1];
+      var patterns = ast.slice(2);
+      for(var i=0;i<patterns.length;i+=2){
+        var newenv = matchRec(env,p,patterns[i]);
+        if(newenv==="no") continue;
+        return ev(newenv,patterns[i+1]);
+      }
+      throw new Error("match failure");
+    case "set":
+      var c_env=env;
+      var head=c_env;
+      while(c_env[2]!==null){
+        if(c_env[0]===ast[1]){
+          var val=ev(env,ast[2])[1];
+          c_env[1]=val;
+          return [head,val];
+        }
+        c_env=c_env[2];
+      }
+      throw new Error("set on undeclared id:"+ast[1]);
+    case "listComp":
+      var expr=ast[1];
+      var id=ast[2];
+      var list=ev(env,ast[3])[1];
+      var outList;
+      var head=null;
+      var newenv;
+      var val;
+      var pred;
+      if(ast.length===5){
+        pred=ast[4];
+      }
+      while(list!==null){
+        newenv=[id,list[1],env];
+        if(ast.length===5){
+          if(!ev(newenv,pred)[1]){
+            list=list[2];
+            continue;
+          }
+        }
+        val=["cons",ev(newenv,expr)[1],null];
+        if(outList===undefined){
+          outList=val;
+          head=outList;
+        }else{
+          outList[2]=val;
+          outList=outList[2];
+        }
+        list=list[2];
+      }
+      return [env,head];
+    case "delay":
+      //var e=ev(env,ast[1])[1];
+      return [env,["closure",[],ast[1],env]];
+    case "force":
+      //var e=ev(env,ast[1])[1];
+      return [env,ev(env,["call",ast[1]])[1]];
+  }
+}*/
